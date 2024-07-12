@@ -1,0 +1,115 @@
+﻿@{
+    ViewBag.Title = "Chat";
+}
+
+<h2>Chat</h2>
+
+<div class="container">
+    <div id="chatBox" style="height: 400px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px;"></div>
+    <input type="text" id="messageInput" class="form-control" placeholder="Type your message..." />
+    <button id="sendButton" class="btn btn-primary mt-2">Send</button>
+
+    <div id="taskAssignmentUI" style="display: none; margin-top: 20px;">
+        <h3>Assign Task</h3>
+        <select id="userSelect" class="form-control mb-2">
+            <!-- User options will be populated dynamically -->
+        </select>
+        <input type="text" id="taskDescription" class="form-control mb-2" placeholder="Task description" />
+        <button id="assignTaskButton" class="btn btn-success">Assign Task</button>
+    </div>
+</div>
+
+@section scripts {
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/5.0.11/signalr.min.js"></script>
+    <script>
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("/chatHub")
+            .build();
+
+        connection.on("ReceiveMessage", function (message) {
+            addMessageToChat(message, false);
+        });
+
+        connection.start().catch(function (err) {
+            return console.error(err.toString());
+        });
+
+        function addMessageToChat(message, isUser) {
+            var chatBox = document.getElementById("chatBox");
+            var messageClass = isUser ? 'text-right' : 'text-left';
+            var messageColor = isUser ? 'text-primary' : 'text-success';
+            var messageElement = document.createElement("p");
+            messageElement.className = messageClass + ' ' + messageColor;
+            messageElement.textContent = (isUser ? 'You: ' : 'Assistant: ') + message;
+            chatBox.appendChild(messageElement);
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            if (message.toLowerCase().includes("assign task")) {
+                showTaskAssignmentUI();
+            }
+        }
+
+        function showTaskAssignmentUI() {
+            document.getElementById("taskAssignmentUI").style.display = "block";
+            // Populate user select options (you'll need to implement this)
+            populateUserSelect();
+        }
+
+        function populateUserSelect() {
+            // Implement this function to fetch users from the server and populate the select element
+            // For now, we'll add some dummy options
+            var userSelect = document.getElementById("userSelect");
+            userSelect.innerHTML = `
+                        <option value="1">User 1</option>
+                        <option value="2">User 2</option>
+                        <option value="3">User 3</option>
+                    `;
+        }
+
+        document.getElementById("sendButton").addEventListener("click", function (event) {
+            sendMessage();
+            event.preventDefault();
+        });
+
+        document.getElementById("messageInput").addEventListener("keypress", function (event) {
+            if (event.key === "Enter") {
+                sendMessage();
+                event.preventDefault();
+            }
+        });
+
+        document.getElementById("assignTaskButton").addEventListener("click", function (event) {
+            assignTask();
+            event.preventDefault();
+        });
+
+        function sendMessage() {
+            var messageInput = document.getElementById("messageInput");
+            var message = messageInput.value.trim();
+            if (message) {
+                addMessageToChat(message, true);
+                connection.invoke("SendMessage", message).catch(function (err) {
+                    return console.error(err.toString());
+                });
+                messageInput.value = '';
+            }
+        }
+
+        function assignTask() {
+            var userSelect = document.getElementById("userSelect");
+            var taskDescription = document.getElementById("taskDescription");
+            var assignedToId = userSelect.value;
+            var description = taskDescription.value.trim();
+
+            if (description) {
+                var message = `Add task: ${description} for user ${assignedToId}`;
+                addMessageToChat(message, true);
+                connection.invoke("SendMessage", message).catch(function (err) {
+                    return console.error(err.toString());
+                });
+                taskDescription.value = '';
+                document.getElementById("taskAssignmentUI").style.display = "none";
+            }
+        }
+    </script>
+}
