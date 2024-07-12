@@ -11,7 +11,6 @@ namespace EmployeeWindow.Data
         {
         }
 
-        public DbSet<Employee> Employees { get; set; }
         public DbSet<User> Users { get; set; }
 
         public DbSet<TodoTask> TodoTasks { get; set; }
