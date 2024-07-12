@@ -16,3 +16,20 @@ html {
 body {
   margin-bottom: 60px;
 }
+
+body.dark-mode {
+  background-color: #121212;
+  color: #e0e0e0;
+}
+
+body.dark-mode a {
+  color: #bb86fc;
+}
+
+body.dark-mode .navbar {
+  background-color: #333;
+}
+
+body.dark-mode .footer {
+  background-color: #333;
+}
