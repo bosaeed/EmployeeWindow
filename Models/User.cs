@@ -4,10 +4,9 @@ namespace EmployeeWindow.Models
 {
     public class User : IdentityUser
     {
-        //public int Id { get; set; }
+        public int Id { get; set; }
         public string FirstName { get; set; }
         public string LastName { get; set; }
-        //public string Role { get; set; } // "Employee" or "Manager"
         public string PreferredLanguage { get; set; }
 
 
