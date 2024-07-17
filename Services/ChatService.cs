@@ -38,7 +38,7 @@ namespace EmployeeWindow.Services
         public async Task<TaskArgs> ProcessMessageAsync(string message, bool isAdmin , string conID)
         {
             //_history.AddChat(conID, currentUser.PreferredLanguage);
-            _logger.LogInformation("***********************************HISTORY********************");
+            _logger.LogInformation("*********************************HISTORY********************");
             _history.AddUserMessage(conID, message);
             var hi = _history.GetChatHistory(conID);
             foreach (var item in hi)

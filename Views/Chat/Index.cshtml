@@ -233,12 +233,13 @@
 
          function reciveInfo(info) {
                 console.log(info);
-                if(info.preferredLanguage == "en"){
+            if (info.preferredLanguage.toLowerCase() == "en") {
                         recognition.lang = 'en-US';
                 }
                 else{
                     recognition.lang = 'ar-SA';
                 }
+             console.log(recognition);
         }
 
         // Web Speech API integration
@@ -252,7 +253,7 @@
         if (recognition) {
             recognition.continuous = false;
             recognition.interimResults = false;
-            recognition.lang = 'ar-SA';
+            //recognition.lang = 'ar-SA';
 
             recognition.onresult = function (event) {
                 var transcript = event.results[0][0].transcript;
