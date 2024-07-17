@@ -1,35 +1,80 @@
 html {
-  font-size: 14px;
+    font-size: 14px;
+    position: relative;
+    min-height: 100%;
 }
 
 @media (min-width: 768px) {
-  html {
-    font-size: 16px;
-  }
-}
-
-html {
-  position: relative;
-  min-height: 100%;
+    html {
+        font-size: 16px;
+    }
 }
 
 body {
-  margin-bottom: 60px;
+    margin-bottom: 60px;
+    transition: background-color 0.3s, color 0.3s;
 }
 
-body.dark-mode {
-  background-color: #121212;
-  color: #e0e0e0;
+    body.dark-mode {
+        background-color: #121212;
+        color: #e0e0e0;
+    }
+
+        body.dark-mode a {
+            color: #bb86fc;
+        }
+
+        body.dark-mode .navbar,
+        body.dark-mode .footer {
+            background-color: #333;
+            transition: background-color 0.3s;
+        }
+
+        /* Additional Dark Mode Styling */
+        body.dark-mode .navbar-brand,
+        body.dark-mode .nav-link {
+            color: #e0e0e0;
+        }
+
+        body.dark-mode .form-control {
+            background-color: #333;
+            color: #e0e0e0;
+            border: 1px solid #444;
+        }
+
+            body.dark-mode .form-control::placeholder {
+                color: #bbb;
+            }
+
+            body.dark-mode .form-control:focus {
+                background-color: #444;
+                border-color: #bb86fc;
+            }
+
+        body.dark-mode .btn-primary {
+            background-color: #bb86fc;
+            border-color: #bb86fc;
+        }
+
+            body.dark-mode .btn-primary:hover {
+                background-color: #9b6fc1;
+                border-color: #9b6fc1;
+            }
+
+        body.dark-mode .text-muted {
+            color: #bbb !important;
+        }
+
+/* General Enhancements */
+footer {
+    position: absolute;
+    bottom: 0;
+    width: 100%;
+    height: 60px;
+    line-height: 60px;
+    background-color: #f5f5f5;
 }
 
-body.dark-mode a {
-  color: #bb86fc;
-}
-
-body.dark-mode .navbar {
-  background-color: #333;
-}
-
-body.dark-mode .footer {
-  background-color: #333;
-}
+    footer.text-muted {
+        color: #6c757d;
+    }
