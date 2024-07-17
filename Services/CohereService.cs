@@ -1,10 +1,4 @@
-﻿using System;
-using System.Net.Http;
-using System.Threading.Tasks;
-using System.Net.Http.Formatting;
-using System.Diagnostics;
-using NuGet.Common;
-
+﻿
 namespace EmployeeWindow.Services
 {
     public class CohereService
@@ -12,15 +6,18 @@ namespace EmployeeWindow.Services
         private readonly string _apiKey;
         private readonly string _url;
         private readonly string _rerankModel;
+        private readonly ILogger<CohereService> _logger;
+
         private readonly HttpClient _httpClient;
 
-        public CohereService(string apiKey,string url , string rerankModel)
+        public CohereService(string apiKey,string url , string rerankModel, ILogger<CohereService> logger)
         {
             _apiKey = apiKey;
             _httpClient = new HttpClient();
             _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_apiKey}");
             _url=url;
             _rerankModel = rerankModel;
+            _logger = logger;
         }
 
         public async Task<RerankResponse> RerankAsync(string query, string[] documents)
@@ -45,12 +42,13 @@ namespace EmployeeWindow.Services
                 }
                 else
                 {
+                    _logger.LogWarning($"error response {response.StatusCode}");
                     return null;
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine(ex);
+                _logger.LogWarning($"error exception {ex}");
                 return null;
             }
         }

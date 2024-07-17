@@ -42,10 +42,31 @@ builder.Services.AddOpenAIChatCompletion(
     modelId: builder.Configuration["OpenAI:model"],
         endpoint: openaiUri,
         apiKey: builder.Configuration["OpenAI:ApiKey"]);
+
 #pragma warning restore SKEXP0010 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
 
-var cohereService = new CohereService(builder.Configuration["Cohere:ApiKey"], builder.Configuration["Cohere:url"],builder.Configuration["Cohere:RerankModel"]);
-builder.Services.AddSingleton(cohereService);
+
+/*
+#pragma warning disable SKEXP0070 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+builder.Services.AddGoogleAIGeminiChatCompletion(
+    modelId: builder.Configuration["Gemini:model"],
+        apiKey: builder.Configuration["Gemini:ApiKey"]);
+#pragma warning restore SKEXP0070 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+
+*/
+// Register CohereService as a singleton
+builder.Services.AddSingleton<CohereService>(sp =>
+{
+    var configuration = sp.GetRequiredService<IConfiguration>();
+    var logger = sp.GetRequiredService<ILogger<CohereService>>();
+
+    return new CohereService(
+        configuration["Cohere:ApiKey"],
+        configuration["Cohere:url"],
+        configuration["Cohere:RerankModel"],
+        logger
+    );
+});
 
 builder.Services.AddScoped<ChatService>();
 

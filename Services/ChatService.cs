@@ -1,30 +1,41 @@
-﻿using EmployeeWindow.Data;
+﻿using Azure;
+using EmployeeWindow.Data;
 using EmployeeWindow.Models;
+using EmployeeWindow.Plugins;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel.Connectors.Google;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
+using System.Threading.Tasks;
 
 // ChatService.cs
 namespace EmployeeWindow.Services
 {
     public class ChatService
     {
-        private const float temprature = (float)0.3;
         private readonly MyDbContext _context;
         private readonly Kernel _kernel;
         private readonly ILogger<ChatService> _logger;
         private readonly HistoryService _history;
+        private readonly UserManager<User> _userManager;
+        private readonly CohereService _cohereService;
 
-        public ChatService(Kernel kernel, MyDbContext context , ILogger<ChatService> logger, HistoryService history)
+
+        public ChatService(Kernel kernel, MyDbContext context , 
+            ILogger<ChatService> logger, HistoryService history , 
+            UserManager<User> userManager,CohereService cohereService)
         {
             _kernel = kernel;
             _context = context;
             _logger = logger;
             _history = history;
+            _userManager = userManager;
+            _cohereService = cohereService;
         }
 
-        public async Task<string> ProcessMessageAsync(string message, bool isAdmin, User currentUser , string conID)
+        public async Task<TaskArgs> ProcessMessageAsync(string message, bool isAdmin , string conID)
         {
             //_history.AddChat(conID, currentUser.PreferredLanguage);
             _logger.LogInformation("***********************************HISTORY********************");
@@ -35,29 +46,14 @@ namespace EmployeeWindow.Services
                 _logger.LogInformation($"{item.Role}: {item.Content}");
             }
 
-            List<KernelFunction> functions = new List<KernelFunction>()
+
+            _kernel.ImportPluginFromType<TaskManagment>();
+
+            if (isAdmin)
             {
-                 _kernel.CreateFunctionFromMethod(AddTaskFunction, "AddTask", "Add task todo." ,new List<KernelParameterMetadata>
-                 {
-                     new KernelParameterMetadata("description")
-                     {
-                         Description = "task description",
-                         IsRequired = true,
-                         
-                     }
-                 }),
+                _kernel.ImportPluginFromType<TaskAdmin>();
+            }
 
-                _kernel.CreateFunctionFromMethod(RetrieveTaskFunction, "RetrieveTask", "Retrieve user's tasks.", new List<KernelParameterMetadata>()),
-
-                _kernel.CreateFunctionFromMethod(CompleteTaskFunction, "CompleteTask", "Complete a task.", new List<KernelParameterMetadata>
-                {
-                  
-                }),
-            };
-
-            _kernel.ImportPluginFromFunctions("HelperFunctions", functions);
-
-            //_kernel.ImportPluginFromType
 
             _history.AddUserMessage(conID, message);
 
@@ -65,14 +61,51 @@ namespace EmployeeWindow.Services
 
             OpenAIPromptExecutionSettings openAIPromptExecutionSettings = new()
             {
-                ToolCallBehavior = ToolCallBehavior.EnableKernelFunctions
+                ToolCallBehavior = ToolCallBehavior.EnableKernelFunctions,
+                Temperature = .5,
+
             };
 
-            ChatMessageContent response = await chatCompletion.GetChatMessageContentAsync(
-                _history.GetChatHistory(conID),
-                executionSettings: openAIPromptExecutionSettings,
-                kernel: _kernel);
+            /*#pragma warning disable SKEXP0070 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+                        GeminiPromptExecutionSettings openAIPromptExecutionSettings = new()
+                        {
+                            ToolCallBehavior = GeminiToolCallBehavior.EnableKernelFunctions,
+                            Temperature = .5,
 
+                        };
+            #pragma warning restore SKEXP0070 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+            */
+
+            ChatMessageContent response = new ChatMessageContent();
+            bool retry = true;
+            int retryN = 0;
+
+            while (retry)
+            {
+                retryN++;
+                try
+                {
+
+                    response = await chatCompletion.GetChatMessageContentAsync(
+                        _history.GetChatHistory(conID),
+                        executionSettings: openAIPromptExecutionSettings,
+                        kernel: _kernel);
+
+                    retry=false;
+                }
+                catch (Exception ex)
+                {
+                    
+                    if(retryN > 2)
+                    {
+                        return new TaskArgs
+                        {
+                            type = TaskType.no,
+                            Description = "Error is happend, please try again"
+                        };
+                    }
+                }
+            }
 
 
             // Get function calls from the chat message content and quit the chat loop if no function calls are found.
@@ -82,7 +115,12 @@ namespace EmployeeWindow.Services
             if (!functionCalls.Any())
             {
                 _history.AddAssistantMessage(conID, response.Content);
-                return response.Content;
+                return new TaskArgs
+                {
+                    type = TaskType.no,
+                    Description = response.Content
+                };
+                //return response.Content;
             }
 
             foreach (var functionCall in functionCalls)
@@ -115,27 +153,20 @@ namespace EmployeeWindow.Services
 
                     _logger.LogInformation($"function result {resultContent.Result}");
 
+                    var taskarg = (TaskArgs)resultContent.Result;
 
-
-                    return $"{resultContent.Result}";
+                    return taskarg;
                 }
                 catch (Exception ex)
                 {
 
-                    return "function error";
+                    return null;
                 }
             }
 
-            return "no response";
+            return null;
         }
 
-        public async Task<string> AddTaskFunction(string description)
-        {
-
-            _logger.LogInformation("******************Add Task Function Called");
-
-            return $"add_task:{description}";
-        }
 
 
         public async Task<string> AddTaskAsync(string description, string assignedToId, string assignedById)
@@ -149,33 +180,90 @@ namespace EmployeeWindow.Services
             };
             _context.TodoTasks.Add(newTask);
             await _context.SaveChangesAsync();
-            return $"Task added: {description}, assigned to user with ID {assignedToId}";
+
+            var user = await _userManager.Users.Select(u => u ).Where(u => u.Id == assignedToId).FirstOrDefaultAsync();
+            return $"Task: {description}, assigned to {user.FullName}";
         }
 
 
-        public async Task<string> RetrieveTaskFunction()
+
+
+        public async Task<List<TodoTask>> GetUserTasksAsync(string userId, string description = "")
         {
-            _logger.LogInformation("******************Retrieve Task Function Called");
-            return "retrieve_tasks";
+            try
+            {
+                _logger.LogInformation($"Getting tasks for user {userId} with description: {description}");
+
+                var tasks = await _context.TodoTasks
+                    .Where(t => t.AssignedToId == userId)
+                    .OrderBy(t => t.IsCompleted)
+                    .ToListAsync();
+
+                _logger.LogInformation($"Found {tasks.Count} tasks for user {userId}");
+
+                if (!string.IsNullOrEmpty(description) && tasks.Any())
+                {
+                    _logger.LogInformation("Starting Cohere reranking process");
+
+                    string[] tasksArray = tasks.Select(t => t.Description).ToArray();
+
+                    if (_cohereService == null)
+                    {
+                        _logger.LogError("CohereService is null. Check DI configuration.");
+                        return tasks;
+                    }
+
+                    if(tasks.Count < 2)
+                    {
+                        _logger.LogInformation("only one result or less no need rerank.");
+                        return tasks;
+                    }
+                    try
+                    {
+                        RerankResponse result = await _cohereService.RerankAsync(description, tasksArray);
+
+                        if (result == null)
+                        {
+                            _logger.LogWarning("Rerank response is null");
+                            return tasks;
+                        }
+
+                        if (result.Results == null)
+                        {
+                            _logger.LogWarning("Rerank results are null");
+                            return tasks;
+                        }
+
+                        var rerankedTaskssMap = result.Results
+                            .Where(r => r.Document != null && !string.IsNullOrEmpty(r.Document.Text))
+                            .GroupBy(r => r.Document.Text)
+                            .ToDictionary(
+                                g => g.Key,
+                                g => g.First().Relevance_score
+                            );
+
+                        tasks = tasks
+                            .OrderByDescending(u => rerankedTaskssMap.ContainsKey(u.Description) ? rerankedTaskssMap[u.Description] : 0)
+                            .ToList();
+
+                        _logger.LogInformation("Cohere reranking process completed successfully");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error occurred during Cohere reranking process");
+                    }
+                }
+
+                return tasks;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Unhandled exception in GetUserTasksAsync for user {userId}");
+                throw; // Rethrow the exception after logging
+            }
         }
 
-        public async Task<List<TodoTask>> GetUserTasksAsync(string userId)
-        {
-            return await _context.TodoTasks
-                .Where(t => t.AssignedToId == userId)
-                .OrderBy(t => t.IsCompleted)
-                .ToListAsync();
-        }
 
-
-
-        public async Task<string> CompleteTaskFunction()
-        {
-            _logger.LogInformation($"******************Complete Task Function Called ");
-            return $"complete_task";
-        }
-
-   
 
         public async Task<string> CompleteTaskAsync(int taskId, string userId)
         {
@@ -194,11 +282,20 @@ namespace EmployeeWindow.Services
         }
     }
 
-    public class AddTaskArgs
-    {
-        public string Description { get; set; }
+    public class TaskArgs { 
+        
+        public TaskType type { get; set; }
+        public string Description { get; set; } = "";
+        public string Name { get; set; } = "";
+
     }
 
-
+    public enum TaskType
+    {
+        add,
+        retrive,
+        complete,
+        no
+    }
 
 }

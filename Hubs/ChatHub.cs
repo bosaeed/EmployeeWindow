@@ -3,8 +3,7 @@ using EmployeeWindow.Services;
 using EmployeeWindow.Models;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Newtonsoft.Json;
-using Microsoft.Extensions.Logging;
+
 
 
 // ChatHub.cs
@@ -32,7 +31,8 @@ namespace EmployeeWindow.Hubs
         {
             _logger.LogInformation($"Connected hub for user: {Context.User.Identity.Name}");
             var user = await _userManager.GetUserAsync(Context.User);
-            _history.AddChat(Context.ConnectionId, user.PreferredLanguage);
+            _history.AddChat(Context.ConnectionId, user);
+            await Clients.Caller.ReceiveInfo(user);
             return base.OnConnectedAsync();
         }
         public override Task OnDisconnectedAsync(Exception? exception)
@@ -49,40 +49,62 @@ namespace EmployeeWindow.Hubs
             _logger.LogInformation($"Message: {message}");
             var user = await _userManager.GetUserAsync(Context.User);
             var userId = await _userManager.GetUserIdAsync(user);
-            _logger.LogInformation($"userId: {userId}");
+            _logger.LogInformation($"****userId: {userId}");
             bool isAdmin = Context.User.IsInRole("Admin"); // Adjust based on your authentication setup
-            var response = await _chatService.ProcessMessageAsync(message, isAdmin, user , Context.ConnectionId);
+            _logger.LogInformation($"****isAdmin: {isAdmin}");
+            TaskArgs response = await _chatService.ProcessMessageAsync(message, isAdmin , Context.ConnectionId);
 
-            if (response.StartsWith("add_task:"))
+            if (response.type == TaskType.add)
             {
-                string taskDescription = response.Substring(9);
+                string taskDescription = response.Description;
                 var users = await _userManager.Users.Select(u => new { u.Id, u.FullName }).ToListAsync();
 
+                if (!string.IsNullOrEmpty(response.Name))
+                {
 
-                _logger.LogInformation("*********************COHERE******************************");
-                string[] fullNamesArray = users.Select(u => u.FullName).ToArray();
-                _logger.LogInformation(fullNamesArray.ToString());
-                var result = await _cohereService.RerankAsync("Mohmmed", fullNamesArray);
-                string json = JsonConvert.SerializeObject(result);
+                    _logger.LogInformation("*********************COHERE******************************");
+                    string[] fullNamesArray = users.Select(u => u.FullName).ToArray();
 
-                // Now 'json' contains the serialized RerankResponse
-                _logger.LogInformation(json);
+                    if (fullNamesArray.Length > 1)
+                    {
+
+                        RerankResponse result = await _cohereService.RerankAsync(response.Name, fullNamesArray);
+
+
+                        var rerankedNamesMap = result.Results.ToDictionary(r => r.Document.Text, r => r.Relevance_score);
+
+                        // Sort users based on reranked relevance scores
+                        var sortedUsers = users
+                            .OrderByDescending(u => rerankedNamesMap.ContainsKey(u.FullName) ? rerankedNamesMap[u.FullName] : 0)
+                            .Select(u => new { u.Id, u.FullName });
+
+                        users = sortedUsers.ToList();
+
+                    }
+                    else
+                    {
+                        _logger.LogInformation("only one result or less no need rerank.");
+
+                    }
+
+                }
+
 
                 await Clients.Caller.ReceivedAddTask(taskDescription, users);
             }
-            else if (response == "retrieve_tasks")
+            else if (response.type == TaskType.retrive)
             {
-                var tasks = await _chatService.GetUserTasksAsync(userId);
+                var tasks = await _chatService.GetUserTasksAsync(userId ,response.Description);
                 await Clients.Caller.ReceivedRetrieveTasks(tasks);
             }
-            else if (response == "complete_task")
+            else if (response.type == TaskType.complete)
             {
-                var tasks = await _chatService.GetUserTasksAsync(userId);
+                var tasks = await _chatService.GetUserTasksAsync(userId , response.Description);
                 await Clients.Caller.ReceivedCompleteTask(tasks);
             }
             else
             {
-                await Clients.Caller.ReceiveMessage(response);
+                await Clients.Caller.ReceiveMessage(response.Description);
             }
 
         }
@@ -119,6 +141,8 @@ namespace EmployeeWindow.Hubs
         Task ReceivedRetrieveTasks(List<TodoTask> tasks);
 
         Task ReceivedCompleteTask(List<TodoTask> tasks);
+
+        Task ReceiveInfo(User user);
 
     }
 

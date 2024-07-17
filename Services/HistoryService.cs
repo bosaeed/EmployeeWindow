@@ -1,4 +1,5 @@
-﻿using Microsoft.SemanticKernel;
+﻿using EmployeeWindow.Models;
+using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using System.Collections.Concurrent;
 
@@ -8,14 +9,21 @@ namespace EmployeeWindow.Services
     {
         private ConcurrentDictionary<string, ChatHistory> _history = new ConcurrentDictionary<string, ChatHistory>();
 
+        public void AddChat(string conID , User user)
+        {
+            if(!_history.ContainsKey(conID))
+            {
+
+                _history.TryAdd(conID, new ChatHistory($"You are a helpful assistant that manages a project tasks. Use the provided tools manage tasks. answer user with {(user.PreferredLanguage == "EN" ? "English" : "Arabic")} language, say i do not know if not know the answer or do not have required tool"));
+                AddAssistantMessage(conID, $@"User Information:
+user name: {user.FullName}");
+            }
+        }
+
         public void Add(string conID, ChatMessageContent message)
         {
             _history[conID].Add(message);
             
-        }
-        public void AddChat(string conID , string lang)
-        {
-            _history.TryAdd(conID, new ChatHistory($"You are a helpful assistant that manages a project todo tasks list. Use the provided tools to add tasks. answer user with {(lang == "EN" ? "English" : "Arabic")} language"));
         }
         public void AddUserMessage(string conID , string message)
         {

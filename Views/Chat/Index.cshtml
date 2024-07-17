@@ -22,6 +22,11 @@
             .withUrl("/chatHub")
             .build();
 
+
+        connection.on("ReceiveInfo", function (info) {
+                reciveInfo(info);
+        });
+
         connection.on("ReceiveMessage", function (message) {
             addMessageToChat(message, false);
         });
@@ -50,8 +55,9 @@
 
         function disableActiveTaskUI() {
             if (activeTaskUI) {
-                activeTaskUI.querySelectorAll('button, select').forEach(element => {
+                activeTaskUI.querySelectorAll('button, select, input').forEach(element => {
                     element.disabled = true;
+                    element.removeAttribute('id');
                 });
                 activeTaskUI.style.opacity = '0.5';
                 activeTaskUI = null;
@@ -65,36 +71,43 @@
             var addTaskDiv = document.createElement("div");
             addTaskDiv.className = "add-task-ui";
             addTaskDiv.innerHTML = `
-                        <p>New task to add: ${taskDescription}</p>
-                        <select id="userSelect" class="form-control mb-2">
-                                    ${users.map(user => `<option value="${user.id}">${user.fullName}</option>`).join('')}
-                        </select>
-                        <button id="addTaskButton" onclick="sendAddTask('${taskDescription}', this)" class="btn btn-success">Add Task</button>
-                    `;
+                <div class="form-group mb-2">
+                    <label for="taskDescriptionInput">Task Description:</label>
+                    <input type="text" id="taskDescriptionInput" class="form-control" value="${taskDescription}">
+                </div>
+                <select id="userSelect" class="form-control mb-2">
+                    ${users.map(user => `<option value="${user.id}">${user.fullName}</option>`).join('')}
+                </select>
+                <button id="addTaskButton" onclick="sendAddTask(this)" class="btn btn-success">Add Task</button>
+            `;
             chatBox.appendChild(addTaskDiv);
             chatBox.scrollTop = chatBox.scrollHeight;
             activeTaskUI = addTaskDiv;
         }
 
-        function sendAddTask(description, button) {
+        function sendAddTask(button) {
+            var taskDescriptionInput = document.getElementById("taskDescriptionInput");
             var userSelect = document.getElementById("userSelect");
+            var description = taskDescriptionInput.value.trim();
             var assignedToId = userSelect.value;
+
+            if (description === "") {
+                alert("Please enter a task description.");
+                return;
+            }
+
             connection.invoke("SendAddTask", description, assignedToId).catch(function (err) {
                 return console.error(err.toString());
             });
 
-            // Disable the UI elements instead of removing them
+            // Disable the UI elements
             button.disabled = true;
             button.textContent = "Task Added";
             button.classList.remove("btn-success");
             button.classList.add("btn-secondary");
+            taskDescriptionInput.disabled = true;
             userSelect.disabled = true;
 
-            // Add a success message
-            var successMessage = document.createElement("p");
-            successMessage.className = "text-success mt-2";
-            successMessage.textContent = "Task successfully added!";
-            button.parentElement.appendChild(successMessage);
 
             disableActiveTaskUI();
         }
@@ -141,6 +154,7 @@
 
         function showCompleteTaskUI(tasks) {
             disableActiveTaskUI();
+            console.log(tasks);
             var chatBox = document.getElementById("chatBox");
             var completeTaskDiv = document.createElement("div");
             completeTaskDiv.className = "complete-task-ui";
@@ -191,17 +205,6 @@
             disableActiveTaskUI();
         }
 
-        document.getElementById("sendButton").addEventListener("click", function (event) {
-            sendMessage();
-            event.preventDefault();
-        });
-
-        document.getElementById("messageInput").addEventListener("keypress", function (event) {
-            if (event.key === "Enter") {
-                sendMessage();
-                event.preventDefault();
-            }
-        });
 
         function sendMessage() {
             var messageInput = document.getElementById("messageInput");
@@ -215,6 +218,28 @@
             }
         }
 
+
+        document.getElementById("sendButton").addEventListener("click", function (event) {
+            sendMessage();
+            event.preventDefault();
+        });
+
+        document.getElementById("messageInput").addEventListener("keypress", function (event) {
+            if (event.key === "Enter") {
+                sendMessage();
+                event.preventDefault();
+            }
+        });
+
+         function reciveInfo(info) {
+                console.log(info);
+                if(info.preferredLanguage == "en"){
+                        recognition.lang = 'en-US';
+                }
+                else{
+                    recognition.lang = 'ar-SA';
+                }
+        }
 
         // Web Speech API integration
         var recognition;
@@ -231,7 +256,9 @@
 
             recognition.onresult = function (event) {
                 var transcript = event.results[0][0].transcript;
+
                 document.getElementById('messageInput').value = transcript;
+                    sendMessage();
             };
 
             recognition.onerror = function (event) {
