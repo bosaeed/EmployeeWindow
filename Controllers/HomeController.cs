@@ -17,7 +17,7 @@ namespace EmployeeWindow.Controllers
 
         public IActionResult Index()
         {
-            return View();
+            return View("../Chat/index");
         }
 
 
