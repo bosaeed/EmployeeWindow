@@ -1,22 +1,18 @@
-﻿@{
+﻿<!-- Index.cshtml -->
+
+@{
     ViewBag.Title = "Chat";
 }
+
+
 
 <h2>Chat</h2>
 
 <div class="container">
     <div id="chatBox" style="height: 400px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px;"></div>
     <input type="text" id="messageInput" class="form-control" placeholder="Type your message..." />
+    <button id="voiceButton" class="btn btn-secondary mt-2">🎤 Speak</button>
     <button id="sendButton" class="btn btn-primary mt-2">Send</button>
-
-    <div id="taskAssignmentUI" style="display: none; margin-top: 20px;">
-        <h3>Assign Task</h3>
-        <select id="userSelect" class="form-control mb-2">
-            <!-- User options will be populated dynamically -->
-        </select>
-        <input type="text" id="taskDescription" class="form-control mb-2" placeholder="Task description" />
-        <button id="assignTaskButton" class="btn btn-success">Assign Task</button>
-    </div>
 </div>
 
 @section scripts {
@@ -30,11 +26,158 @@
             addMessageToChat(message, false);
         });
 
+        connection.on("ReceivedAddTask", function (taskDescription, users) {
+            console.log("ReceivedAddTask is called");
+            showAddTaskUI(taskDescription, users);
+        });
+
+        connection.on("ReceivedRetrieveTasks", function (tasks) {
+            console.log("ReceivedRetrieveTasks is called");
+            showRetrievedTasks(tasks);
+        });
+
+        connection.on("ReceivedCompleteTask", function (taskId) {
+            console.log("ReceivedCompleteTask is called");
+            showCompleteTaskUI(taskId);
+        });
+
         connection.start().catch(function (err) {
             return console.error(err.toString());
         });
 
+
+        let activeTaskUI = null;
+
+        function disableActiveTaskUI() {
+            if (activeTaskUI) {
+                activeTaskUI.querySelectorAll('button, select').forEach(element => {
+                    element.disabled = true;
+                });
+                activeTaskUI.style.opacity = '0.5';
+                activeTaskUI = null;
+            }
+        }
+
+        function showAddTaskUI(taskDescription, users) {
+            disableActiveTaskUI();
+            console.log(users);
+            var chatBox = document.getElementById("chatBox");
+            var addTaskDiv = document.createElement("div");
+            addTaskDiv.className = "add-task-ui";
+            addTaskDiv.innerHTML = `
+                        <p>New task to add: ${taskDescription}</p>
+                        <select id="userSelect" class="form-control mb-2">
+                                    ${users.map(user => `<option value="${user.id}">${user.fullName}</option>`).join('')}
+                        </select>
+                        <button id="addTaskButton" onclick="sendAddTask('${taskDescription}', this)" class="btn btn-success">Add Task</button>
+                    `;
+            chatBox.appendChild(addTaskDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            activeTaskUI = addTaskDiv;
+        }
+
+        function sendAddTask(description, button) {
+            var userSelect = document.getElementById("userSelect");
+            var assignedToId = userSelect.value;
+            connection.invoke("SendAddTask", description, assignedToId).catch(function (err) {
+                return console.error(err.toString());
+            });
+
+            // Disable the UI elements instead of removing them
+            button.disabled = true;
+            button.textContent = "Task Added";
+            button.classList.remove("btn-success");
+            button.classList.add("btn-secondary");
+            userSelect.disabled = true;
+
+            // Add a success message
+            var successMessage = document.createElement("p");
+            successMessage.className = "text-success mt-2";
+            successMessage.textContent = "Task successfully added!";
+            button.parentElement.appendChild(successMessage);
+
+            disableActiveTaskUI();
+        }
+
+
+        function showRetrievedTasks(tasks) {
+            disableActiveTaskUI();
+            var chatBox = document.getElementById("chatBox");
+            var tasksDiv = document.createElement("div");
+            tasksDiv.className = "retrieved-tasks";
+            if (tasks.length === 0) {
+                tasksDiv.innerHTML = `<p>You have no tasks.</p>`;
+            } else {
+                const incompleteTasks = tasks.filter(task => !task.isCompleted);
+                if (incompleteTasks.length === 0) {
+                    tasksDiv.innerHTML = `
+                                <h4>Your Tasks:</h4>
+                                <p>All tasks are completed. Great job!</p>
+                                <ul>
+                                    ${tasks.map(task => `
+                                        <li>
+                                            ${task.description} - Completed
+                                        </li>
+                                    `).join('')}
+                                </ul>
+                            `;
+                } else {
+                    tasksDiv.innerHTML = `
+                                <h4>Your Tasks:</h4>
+                                <ul>
+                                    ${tasks.map(task => `
+                                        <li>
+                                            ${task.description} - ${task.isCompleted ? 'Completed' : 'Pending'}
+                                        </li>
+                                    `).join('')}
+                                </ul>
+                            `;
+                }
+            }
+            chatBox.appendChild(tasksDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            activeTaskUI = tasksDiv;
+        }
+
+        function showCompleteTaskUI(tasks) {
+            disableActiveTaskUI();
+            var chatBox = document.getElementById("chatBox");
+            var completeTaskDiv = document.createElement("div");
+            completeTaskDiv.className = "complete-task-ui";
+
+            const incompleteTasks = tasks.filter(task => !task.isCompleted);
+
+            if (incompleteTasks.length === 0) {
+                completeTaskDiv.innerHTML = `
+                            <p>All tasks are already completed. Great job!</p>
+                        `;
+            } else {
+                completeTaskDiv.innerHTML = `
+                            <p>Select a task to complete:</p>
+                            <select id="taskSelect">
+                                ${incompleteTasks.map(task => `<option value="${task.id}">${task.description}</option>`).join('')}
+                            </select>
+                            <button onclick="sendCompleteTask()">Complete Selected Task</button>
+                        `;
+            }
+
+            chatBox.appendChild(completeTaskDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            activeTaskUI = completeTaskDiv;
+        }
+
+        function sendCompleteTask() {
+            var taskSelect = document.getElementById("taskSelect");
+            var taskId = taskSelect.value;
+            connection.invoke("SendCompleteTask", parseInt(taskId)).catch(function (err) {
+                return console.error(err.toString());
+            });
+
+            disableActiveTaskUI();
+        }
+
         function addMessageToChat(message, isUser) {
+            console.log(message);
             var chatBox = document.getElementById("chatBox");
             var messageClass = isUser ? 'text-right' : 'text-left';
             var messageColor = isUser ? 'text-primary' : 'text-success';
@@ -42,28 +185,10 @@
             messageElement.className = messageClass + ' ' + messageColor;
             messageElement.textContent = (isUser ? 'You: ' : 'Assistant: ') + message;
             chatBox.appendChild(messageElement);
+
             chatBox.scrollTop = chatBox.scrollHeight;
 
-            if (message.toLowerCase().includes("assign task")) {
-                showTaskAssignmentUI();
-            }
-        }
-
-        function showTaskAssignmentUI() {
-            document.getElementById("taskAssignmentUI").style.display = "block";
-            // Populate user select options (you'll need to implement this)
-            populateUserSelect();
-        }
-
-        function populateUserSelect() {
-            // Implement this function to fetch users from the server and populate the select element
-            // For now, we'll add some dummy options
-            var userSelect = document.getElementById("userSelect");
-            userSelect.innerHTML = `
-                        <option value="1">User 1</option>
-                        <option value="2">User 2</option>
-                        <option value="3">User 3</option>
-                    `;
+            disableActiveTaskUI();
         }
 
         document.getElementById("sendButton").addEventListener("click", function (event) {
@@ -78,11 +203,6 @@
             }
         });
 
-        document.getElementById("assignTaskButton").addEventListener("click", function (event) {
-            assignTask();
-            event.preventDefault();
-        });
-
         function sendMessage() {
             var messageInput = document.getElementById("messageInput");
             var message = messageInput.value.trim();
@@ -95,21 +215,35 @@
             }
         }
 
-        function assignTask() {
-            var userSelect = document.getElementById("userSelect");
-            var taskDescription = document.getElementById("taskDescription");
-            var assignedToId = userSelect.value;
-            var description = taskDescription.value.trim();
 
-            if (description) {
-                var message = `Add task: ${description} for user ${assignedToId}`;
-                addMessageToChat(message, true);
-                connection.invoke("SendMessage", message).catch(function (err) {
-                    return console.error(err.toString());
-                });
-                taskDescription.value = '';
-                document.getElementById("taskAssignmentUI").style.display = "none";
-            }
+        // Web Speech API integration
+        var recognition;
+        if ('webkitSpeechRecognition' in window) {
+            recognition = new webkitSpeechRecognition();
+        } else if ('SpeechRecognition' in window) {
+            recognition = new SpeechRecognition();
+        }
+
+        if (recognition) {
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = 'ar-SA';
+
+            recognition.onresult = function (event) {
+                var transcript = event.results[0][0].transcript;
+                document.getElementById('messageInput').value = transcript;
+            };
+
+            recognition.onerror = function (event) {
+                console.error(event.error);
+            };
+
+            document.getElementById('voiceButton').addEventListener('click', function () {
+                recognition.start();
+            });
+        } else {
+            console.warn('Web Speech API is not supported in this browser.');
+            document.getElementById('voiceButton').disabled = true;
         }
     </script>
 }

@@ -1,112 +1,144 @@
 ﻿using EmployeeWindow.Data;
 using EmployeeWindow.Models;
 using Microsoft.EntityFrameworkCore;
-using OpenAI;
-using OpenAI.Chat;
-using System.Text.Json;
+using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel.Connectors.OpenAI;
 
+// ChatService.cs
 namespace EmployeeWindow.Services
 {
     public class ChatService
     {
-        private readonly OpenAIClient _openAIClient;
+        private const float temprature = (float)0.3;
         private readonly MyDbContext _context;
+        private readonly Kernel _kernel;
+        private readonly ILogger<ChatService> _logger;
+        private readonly HistoryService _history;
 
-        public ChatService(OpenAIClient openAIClient, MyDbContext context)
+        public ChatService(Kernel kernel, MyDbContext context , ILogger<ChatService> logger, HistoryService history)
         {
-            _openAIClient = openAIClient;
+            _kernel = kernel;
             _context = context;
+            _logger = logger;
+            _history = history;
         }
 
-        public async Task<string> ProcessMessageAsync(string message, bool isAdmin, string currentUserId)
+        public async Task<string> ProcessMessageAsync(string message, bool isAdmin, User currentUser , string conID)
         {
-            var chatClient = _openAIClient.GetChatClient("gpt-3.5-turbo");
-
-            var addTaskTool = ChatTool.CreateFunctionTool(
-                "AddTask",
-                "Add a new task to the todo list",
-                BinaryData.FromString(@"{
-                    ""type"": ""object"",
-                    ""properties"": {
-                        ""description"": {
-                            ""type"": ""string"",
-                            ""description"": ""The description of the task""
-                        },
-                        ""assignedToId"": {
-                            ""type"": ""string"",
-                            ""description"": ""The ID of the user to assign the task to""
-                        }
-                    },
-                    ""required"": [""description"", ""assignedToId""]
-                }")
-            );
-
-            var completeTaskTool = ChatTool.CreateFunctionTool(
-                "CompleteTask",
-                "Mark a task as completed",
-                BinaryData.FromString(@"{
-                    ""type"": ""object"",
-                    ""properties"": {
-                        ""description"": {
-                            ""type"": ""string"",
-                            ""description"": ""The description of the task to complete""
-                        }
-                    },
-                    ""required"": [""description""]
-                }")
-            );
-
-            var getAssignedTasksTool = ChatTool.CreateFunctionTool(
-                "GetAssignedTasks",
-                "Get tasks assigned to the current user",
-                BinaryData.FromString(@"{
-                    ""type"": ""object"",
-                    ""properties"": {},
-                    ""required"": []
-                }")
-            );
-
-            var messages = new List<ChatMessage>
+            //_history.AddChat(conID, currentUser.PreferredLanguage);
+            _logger.LogInformation("***********************************HISTORY********************");
+            _history.AddUserMessage(conID, message);
+            var hi = _history.GetChatHistory(conID);
+            foreach (var item in hi)
             {
-                new SystemChatMessage("You are a helpful assistant that manages a todo list. Use the provided functions to add, complete, or retrieve tasks."),
-                new UserChatMessage(message)
-            };
+                _logger.LogInformation($"{item.Role}: {item.Content}");
+            }
 
-            ChatCompletionOptions options = new()
+            List<KernelFunction> functions = new List<KernelFunction>()
             {
-                Tools = { addTaskTool, completeTaskTool, getAssignedTasksTool },
-            };
+                 _kernel.CreateFunctionFromMethod(AddTaskFunction, "AddTask", "Add task todo." ,new List<KernelParameterMetadata>
+                 {
+                     new KernelParameterMetadata("description")
+                     {
+                         Description = "task description",
+                         IsRequired = true,
+                         
+                     }
+                 }),
 
-            ChatCompletion completion = chatClient.CompleteChat(messages, options);
+                _kernel.CreateFunctionFromMethod(RetrieveTaskFunction, "RetrieveTask", "Retrieve user's tasks.", new List<KernelParameterMetadata>()),
 
-            if (completion.FinishReason == ChatFinishReason.ToolCalls)
-            {
-                foreach (var toolCall in completion.ToolCalls)
+                _kernel.CreateFunctionFromMethod(CompleteTaskFunction, "CompleteTask", "Complete a task.", new List<KernelParameterMetadata>
                 {
-                    if (toolCall.FunctionName == "AddTask" && isAdmin)
+                  
+                }),
+            };
+
+            _kernel.ImportPluginFromFunctions("HelperFunctions", functions);
+
+            //_kernel.ImportPluginFromType
+
+            _history.AddUserMessage(conID, message);
+
+            IChatCompletionService chatCompletion = _kernel.GetRequiredService<IChatCompletionService>();
+
+            OpenAIPromptExecutionSettings openAIPromptExecutionSettings = new()
+            {
+                ToolCallBehavior = ToolCallBehavior.EnableKernelFunctions
+            };
+
+            ChatMessageContent response = await chatCompletion.GetChatMessageContentAsync(
+                _history.GetChatHistory(conID),
+                executionSettings: openAIPromptExecutionSettings,
+                kernel: _kernel);
+
+
+
+            // Get function calls from the chat message content and quit the chat loop if no function calls are found.
+#pragma warning disable SKEXP0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+            IEnumerable<FunctionCallContent> functionCalls = FunctionCallContent.GetFunctionCalls(response);
+#pragma warning restore SKEXP0001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+            if (!functionCalls.Any())
+            {
+                _history.AddAssistantMessage(conID, response.Content);
+                return response.Content;
+            }
+
+            foreach (var functionCall in functionCalls)
+            {
+                try
+                {
+                    // Invoking the function
+       
+                    var resultContent = await functionCall.InvokeAsync(_kernel);
+                    var functionCallItems = new ChatMessageContentItemCollection()
                     {
-                        var args = JsonSerializer.Deserialize<AddTaskArgs>(toolCall.FunctionArguments);
-                        await AddTaskAsync(args.Description, args.AssignedToId, currentUserId);
-                        return $"Task added: {args.Description}, assigned to user with ID {args.AssignedToId}";
-                    }
-                    else if (toolCall.FunctionName == "CompleteTask")
+                        functionCall,
+                        
+                    };
+                    _history.Add(conID, new ChatMessageContent()
                     {
-                        var args = JsonSerializer.Deserialize<CompleteTaskArgs>(toolCall.FunctionArguments);
-                        var result = await CompleteTaskAsync(args.Description, currentUserId);
-                        return result;
-                    }
-                    else if (toolCall.FunctionName == "GetAssignedTasks")
+                        Role = AuthorRole.Assistant,
+                        Items = functionCallItems
+                    });
+                    var functionResultItems = new ChatMessageContentItemCollection()
                     {
-                        var tasks = await GetAssignedTasksAsync(currentUserId);
-                        return $"Your assigned tasks: {string.Join(", ", tasks)}";
-                    }
+                        
+                        resultContent
+                    };
+                    _history.Add(conID, new ChatMessageContent()
+                    {
+                        Role = AuthorRole.Tool,
+                        Items = functionResultItems
+                    });
+
+                    _logger.LogInformation($"function result {resultContent.Result}");
+
+
+
+                    return $"{resultContent.Result}";
+                }
+                catch (Exception ex)
+                {
+
+                    return "function error";
                 }
             }
 
-            return completion.ToString();
+            return "no response";
         }
 
-        private async Task AddTaskAsync(string description, string assignedToId, string assignedById)
+        public async Task<string> AddTaskFunction(string description)
+        {
+
+            _logger.LogInformation("******************Add Task Function Called");
+
+            return $"add_task:{description}";
+        }
+
+
+        public async Task<string> AddTaskAsync(string description, string assignedToId, string assignedById)
         {
             var newTask = new TodoTask
             {
@@ -117,37 +149,56 @@ namespace EmployeeWindow.Services
             };
             _context.TodoTasks.Add(newTask);
             await _context.SaveChangesAsync();
+            return $"Task added: {description}, assigned to user with ID {assignedToId}";
         }
 
-        private async Task<string> CompleteTaskAsync(string description, string userId)
+
+        public async Task<string> RetrieveTaskFunction()
         {
-            var task = await _context.TodoTasks.FirstOrDefaultAsync(t => t.Description == description && t.AssignedToId == userId);
-            if (task != null)
-            {
-                task.IsCompleted = true;
-                await _context.SaveChangesAsync();
-                return $"Task completed: {description}";
-            }
-            return "Task not found or not assigned to you.";
+            _logger.LogInformation("******************Retrieve Task Function Called");
+            return "retrieve_tasks";
         }
 
-        private async Task<List<string>> GetAssignedTasksAsync(string userId)
+        public async Task<List<TodoTask>> GetUserTasksAsync(string userId)
         {
             return await _context.TodoTasks
-                .Where(t => t.AssignedToId == userId && !t.IsCompleted)
-                .Select(t => t.Description)
+                .Where(t => t.AssignedToId == userId)
+                .OrderBy(t => t.IsCompleted)
                 .ToListAsync();
+        }
+
+
+
+        public async Task<string> CompleteTaskFunction()
+        {
+            _logger.LogInformation($"******************Complete Task Function Called ");
+            return $"complete_task";
+        }
+
+   
+
+        public async Task<string> CompleteTaskAsync(int taskId, string userId)
+        {
+            var task = await _context.TodoTasks.FindAsync(taskId);
+            if (task == null)
+            {
+                return "Task not found.";
+            }
+            if (task.AssignedToId != userId)
+            {
+                return "You are not authorized to complete this task.";
+            }
+            task.IsCompleted = true;
+            await _context.SaveChangesAsync();
+            return $"Task '{task.Description}' has been marked as completed.";
         }
     }
 
     public class AddTaskArgs
     {
         public string Description { get; set; }
-        public string AssignedToId { get; set; }
     }
 
-    public class CompleteTaskArgs
-    {
-        public string Description { get; set; }
-    }
+
+
 }

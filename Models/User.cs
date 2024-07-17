@@ -1,15 +1,19 @@
 ﻿using Microsoft.AspNetCore.Identity;
+using System.ComponentModel.DataAnnotations;
 
 namespace EmployeeWindow.Models
 {
     public class User : IdentityUser
     {
-        public int Id { get; set; }
+        [Required]
         public string FirstName { get; set; }
+        [Required]
         public string LastName { get; set; }
+        [Required]
         public string PreferredLanguage { get; set; }
 
-
+        [Display(Name = "Full Name")]
+        public string FullName => $"{FirstName} {LastName}";
 
         public static async Task SeedAdminUser(IServiceProvider serviceProvider)
         {
@@ -32,7 +36,10 @@ namespace EmployeeWindow.Models
                     {
                         UserName = "admin@admin.com",
                         Email = "admin@admin.com",
-                        EmailConfirmed = true
+                        EmailConfirmed = true,
+                        FirstName = "Abdullah",
+                        LastName = "Jaber",
+                        PreferredLanguage = "English"
                     };
                     await userManager.CreateAsync(adminUser, "AdminPassword123!"); // Change this password
                 }

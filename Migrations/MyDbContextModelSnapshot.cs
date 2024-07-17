@@ -47,7 +47,7 @@ namespace EmployeeWindow.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("TodoTasks");
+                    b.ToTable("TodoTasks", (string)null);
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
